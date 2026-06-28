@@ -113,6 +113,30 @@ fn masks_piped_json() {
 }
 
 #[test]
+fn scalar_input_prints_null() {
+    // A truthy scalar drops, which the top level coerces to null. The binary
+    // prints the literal null and exits 0.
+    let out = run(&["a"], Some("5"));
+    assert_eq!(out.code, 0);
+    assert_eq!(out.stdout.trim(), "null");
+}
+
+#[test]
+fn null_input_prints_null() {
+    let out = run(&["a"], Some("null"));
+    assert_eq!(out.code, 0);
+    assert_eq!(out.stdout.trim(), "null");
+}
+
+#[test]
+fn missing_key_prints_empty_object() {
+    // A missing key leaves an empty object, not null.
+    let out = run(&["a"], Some("{\"b\":1}"));
+    assert_eq!(out.code, 0);
+    assert_eq!(out.stdout.trim(), "{}");
+}
+
+#[test]
 fn masks_piped_fixture_kind() {
     let raw = std::fs::read_to_string(fixture("activities.json")).unwrap();
     let out = run(&["kind"], Some(&raw));

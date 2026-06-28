@@ -44,13 +44,15 @@ fn mask_table() {
             o: json!([{"b": 1}]),
             e: json!([{}]),
         },
-        // 4: a null mask is a passthrough (modeled as the empty string)
+        // 4 and 5: an empty mask is a passthrough. A null or undefined mask
+        // collapses to the same empty-string-to-None path in this crate, since
+        // there is no separate null mask value. The compile-to-None passthrough
+        // chain is asserted directly in filter_test.rs.
         Case {
             m: "",
             o: json!({"a": 1}),
             e: json!({"a": 1}),
         },
-        // 5: an empty mask is a passthrough
         Case {
             m: "",
             o: json!({"a": 1}),
