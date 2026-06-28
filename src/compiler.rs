@@ -20,7 +20,6 @@
 use std::collections::VecDeque;
 
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
 
 /// A compiled mask: an ordered map from key to node.
 ///
@@ -34,38 +33,16 @@ pub type CompiledMask = IndexMap<String, Node>;
 /// a key that was followed by `(...)`. `is_wildcard` marks the bare `*`
 /// selector, which expands over every key of the data object. `properties`
 /// holds the nested sub-mask and is absent when empty.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
-    /// `"array"` when the key was followed by `(...)`, else `"object"`.
-    ///
-    /// Serialized as the field `type` to match the query node shape.
-    #[serde(
-        rename = "type",
-        serialize_with = "serialize_type",
-        deserialize_with = "deserialize_type"
-    )]
+    /// True when the key was followed by `(...)`, marking an array selector.
     pub is_array: bool,
 
     /// True only for the bare `*` selector. An escaped `\*` is a literal key.
-    #[serde(rename = "isWildcard", default, skip_serializing_if = "is_false")]
     pub is_wildcard: bool,
 
     /// Nested sub-mask. Absent when the node has no children.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties: Option<CompiledMask>,
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
-fn serialize_type<S: serde::Serializer>(is_array: &bool, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(if *is_array { "array" } else { "object" })
-}
-
-fn deserialize_type<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    let tag = String::deserialize(d)?;
-    Ok(tag == "array")
 }
 
 const ESCAPE_CHAR: char = '\\';
@@ -100,6 +77,7 @@ fn is_terminal(ch: char) -> bool {
 /// assert!(tree.contains_key("a"));
 /// assert!(tree.contains_key("b"));
 /// ```
+#[must_use]
 pub fn compile(text: &str) -> Option<CompiledMask> {
     if text.is_empty() {
         return None;
@@ -198,15 +176,9 @@ fn build_tree(
                 }
             }
             Token::Comma => return props,
-            Token::Open => {
-                *parent_is_array = true;
-                continue;
-            }
+            Token::Open => *parent_is_array = true,
             Token::Close => return props,
-            Token::Slash => {
-                *parent_has_child = true;
-                continue;
-            }
+            Token::Slash => *parent_has_child = true,
         }
     }
 
