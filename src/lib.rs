@@ -40,7 +40,8 @@
 //! - [`mask`] compiles the query and filters in one call. A dropped or falsy
 //!   result becomes [`serde_json::Value::Null`].
 //! - [`compile`] turns a query into a reusable [`CompiledMask`].
-//! - [`filter`] applies a compiled mask to a value.
+//! - [`filter`] applies a compiled mask to a value. It returns `Option<Value>`
+//!   so a dropped key stays distinct from a kept null.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -67,9 +68,10 @@ use serde_json::Value;
 /// assert_eq!(mask(&json!({"a": 1}), ""), json!({"a": 1}));
 /// assert_eq!(mask(&Value::Null, "a"), Value::Null);
 /// ```
+#[must_use]
 pub fn mask(obj: &Value, mask_str: &str) -> Value {
     let compiled = compile(mask_str);
-    match filter::filter_inner(obj, &compiled) {
+    match filter::filter(obj, compiled.as_ref()) {
         Some(value) if !filter::is_falsy(&value) => value,
         _ => Value::Null,
     }

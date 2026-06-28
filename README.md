@@ -50,7 +50,18 @@ dropped. An empty object or array is preserved.
 - `mask(obj, query)` compiles and filters in one call. A dropped or falsy result
   becomes `null`.
 - `compile(query)` turns a query into a reusable mask tree.
-- `filter(obj, compiled)` applies a compiled mask to a value.
+- `filter(obj, compiled)` applies a compiled mask to a value. It takes
+  `Option<&CompiledMask>` and returns `Option<Value>`, where `None` means the
+  value was dropped and `Some(Value::Null)` means an explicit null was kept.
+
+```rust
+use json_fieldmask::{compile, filter};
+use serde_json::json;
+
+let compiled = compile("a");
+let out = filter(&json!({"a": 1, "b": 2}), compiled.as_ref());
+assert_eq!(out, Some(json!({"a": 1})));
+```
 
 ## CLI
 

@@ -11,76 +11,44 @@ use serde_json::{Map, Value};
 
 use crate::compiler::{CompiledMask, Node};
 
-/// Prune `obj` against `compiled`.
+/// Prune `obj` against `compiled` and report a dropped result.
 ///
 /// A `None` mask is a passthrough and returns `obj` unchanged. An array input is
 /// masked element by element with the structure preserved. This is the
-/// `mask.filter` entry point and does not coerce a dropped result to null.
+/// `mask.filter` entry point. It does not coerce a dropped or falsy result to
+/// null. That coercion belongs to [`crate::mask`] alone.
 ///
-/// The engine can drop a value entirely, which has no JSON analogue. When that
-/// happens at the top level, this returns [`Value::Null`]. The [`crate::mask`]
-/// entry point relies on the richer [`filter_inner`] form to apply its own
-/// coercion.
+/// The return type tells a dropped key apart from a kept null. `None` means the
+/// engine dropped the value, which has no JSON analogue. `Some(Value::Null)`
+/// means an explicit null was kept. A scalar under a real mask is dropped and
+/// returns `None`, so `filter(&json!("x"), compile("a").as_ref())` is `None`,
+/// while `filter(&json!(null), compile("a").as_ref())` is `Some(Value::Null)`.
 ///
 /// ```
 /// use json_fieldmask::{compile, filter};
 /// use serde_json::json;
 /// let m = compile("a");
-/// assert_eq!(filter(&json!({"a": 1, "b": 2}), &m), json!({"a": 1}));
+/// assert_eq!(filter(&json!({"a": 1, "b": 2}), m.as_ref()), Some(json!({"a": 1})));
 /// ```
-pub fn filter(obj: &Value, compiled: &Option<CompiledMask>) -> Value {
-    filter_inner(obj, compiled).unwrap_or(Value::Null)
-}
-
-/// Prune `obj` and report a dropped result.
-///
-/// Returns `None` when the engine drops the value, which the caller maps as it
-/// sees fit. Used by [`crate::mask`] so it can coerce a dropped or falsy result
-/// to null the way the top-level entry point does.
-pub(crate) fn filter_inner(obj: &Value, compiled: &Option<CompiledMask>) -> Option<Value> {
-    if obj.is_array() {
-        array_properties(obj, compiled)
+#[must_use]
+pub fn filter(obj: &Value, compiled: Option<&CompiledMask>) -> Option<Value> {
+    if let Value::Array(items) = obj {
+        mask_array(items, compiled)
     } else {
         properties(obj, compiled)
     }
 }
 
-/// Mask a top-level array.
-///
-/// Wraps the array under a synthetic key, masks it as an array-typed property,
-/// then unwraps the result. Mirrors the object path so the element logic is
-/// shared.
-fn array_properties(arr: &Value, mask: &Option<CompiledMask>) -> Option<Value> {
-    let mut wrapper = Map::new();
-    wrapper.insert("_".to_string(), arr.clone());
-    let wrapped = Value::Object(wrapper);
-
-    let mut synthetic: CompiledMask = CompiledMask::new();
-    synthetic.insert(
-        "_".to_string(),
-        Node {
-            is_array: true,
-            is_wildcard: false,
-            properties: mask.clone(),
-        },
-    );
-
-    let result = properties(&wrapped, &Some(synthetic))?;
-    match result {
-        Value::Object(mut map) => map.remove("_"),
-        _ => None,
-    }
-}
-
-/// Prune an object or scalar against a mask.
+/// Prune an object, array, or scalar against a mask.
 ///
 /// A null obj or a `None` mask returns the value unchanged. The result mirrors
 /// the input container: an object yields an object, an array yields an array. A
-/// scalar input with a real mask falls through and returns the scalar.
+/// truthy scalar with a real mask has no keys to walk and drops.
 ///
-/// Returns `None` only when the caller should drop the key, which happens for a
-/// missing input value. An object that matches nothing returns `Some({})`.
-fn properties(obj: &Value, mask: &Option<CompiledMask>) -> Option<Value> {
+/// Returns `None` only when the caller should drop the value, which happens for
+/// a truthy scalar under a real mask. An object that matches nothing returns
+/// `Some({})`.
+fn properties(obj: &Value, mask: Option<&CompiledMask>) -> Option<Value> {
     let mask = match mask {
         Some(m) => m,
         None => return Some(obj.clone()),
@@ -92,16 +60,13 @@ fn properties(obj: &Value, mask: &Option<CompiledMask>) -> Option<Value> {
         return Some(obj.clone());
     }
 
-    // An array input yields an array. Only wildcard expansion lands as
-    // elements. A named key looks up a string property on the array, which is
-    // always absent, so named keys drop.
+    // An array input yields an array. Named nodes are skipped here. Only
+    // wildcard nodes expand into array elements.
     if let Value::Array(items) = obj {
         let mut out = Vec::new();
-        for (_, node) in mask {
+        for node in mask.values() {
             if node.is_wildcard {
-                for (_, value) in for_all_array(items, &node.properties, node.is_array) {
-                    out.push(value);
-                }
+                out.extend(for_all_array(items, node));
             }
         }
         return Some(Value::Array(out));
@@ -117,11 +82,13 @@ fn properties(obj: &Value, mask: &Option<CompiledMask>) -> Option<Value> {
 
     for (key, node) in mask {
         if node.is_wildcard {
-            for (ret_key, ret_val) in for_all(obj, &node.properties, node.is_array) {
+            for (ret_key, ret_val) in for_all(obj, node) {
                 masked.insert(ret_key, ret_val);
             }
-        } else if let Some(ret) = apply(obj, key, node) {
-            masked.insert(key.clone(), ret);
+        } else if let Some(value) = get(obj, key) {
+            if let Some(ret) = select(value, node) {
+                masked.insert(key.clone(), ret);
+            }
         }
     }
 
@@ -130,98 +97,66 @@ fn properties(obj: &Value, mask: &Option<CompiledMask>) -> Option<Value> {
 
 /// Apply a wildcard over every key of an object.
 ///
-/// Runs the object or array logic per data key and keeps results that are not
+/// Runs the per-value handler for each data key and keeps results that are not
 /// dropped. Iterates in data order, which sets the order of the kept keys.
-fn for_all(obj: &Value, mask: &Option<CompiledMask>, is_array: bool) -> Vec<(String, Value)> {
+fn for_all(obj: &Value, node: &Node) -> Vec<(String, Value)> {
     let mut ret = Vec::new();
     if let Value::Object(map) = obj {
-        for key in map.keys() {
-            let value = if is_array {
-                array(obj, key, mask)
-            } else {
-                object(obj, key, mask)
-            };
-            if let Some(value) = value {
-                ret.push((key.clone(), value));
+        for (key, value) in map {
+            if let Some(masked) = select(value, node) {
+                ret.push((key.clone(), masked));
             }
         }
     }
     ret
 }
 
-/// Apply a wildcard over every index of an array.
+/// Apply a wildcard over every element of an array.
 ///
-/// Mirrors [`for_all`] for the array case, where keys are the index strings.
-/// Wraps each element under its index so the object and array handlers can look
-/// it up.
-fn for_all_array(
-    items: &[Value],
-    mask: &Option<CompiledMask>,
-    is_array: bool,
-) -> Vec<(String, Value)> {
+/// Runs the per-value handler for each element and keeps results that are not
+/// dropped. Iterates in array order.
+fn for_all_array(items: &[Value], node: &Node) -> Vec<Value> {
     let mut ret = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        let key = i.to_string();
-        let mut holder = Map::new();
-        holder.insert(key.clone(), item.clone());
-        let holder = Value::Object(holder);
-        let value = if is_array {
-            array(&holder, &key, mask)
-        } else {
-            object(&holder, &key, mask)
-        };
-        if let Some(value) = value {
-            ret.push((key, value));
+    for item in items {
+        if let Some(masked) = select(item, node) {
+            ret.push(masked);
         }
     }
     ret
 }
 
-/// Dispatch a single non-wildcard key to the object or array handler.
-fn apply(obj: &Value, key: &str, node: &Node) -> Option<Value> {
+/// Mask a single value against one node.
+///
+/// An array value is masked element by element. A non-array value under an
+/// array node is masked as an object. A present sub-mask recurses. A leaf
+/// selection returns the value whole.
+fn select(value: &Value, node: &Node) -> Option<Value> {
+    let mask = node.properties.as_ref();
+    if let Value::Array(items) = value {
+        return mask_array(items, mask);
+    }
     if node.is_array {
-        array(obj, key, &node.properties)
-    } else {
-        object(obj, key, &node.properties)
+        // An array node over a non-array value falls back to object masking.
+        return properties(value, mask);
+    }
+    match mask {
+        Some(_) => properties(value, mask),
+        None => Some(value.clone()),
     }
 }
 
-/// Handle an object-typed key.
+/// Mask each element of an array and rebuild it.
 ///
-/// An array value is delegated to the array handler so a path through an array
-/// masks each element. A present sub-mask recurses. A leaf selection returns the
-/// value whole. A missing key returns `None`.
-fn object(obj: &Value, key: &str, mask: &Option<CompiledMask>) -> Option<Value> {
-    match get(obj, key) {
-        Some(value) if value.is_array() => array(obj, key, mask),
-        Some(value) => match mask {
-            Some(_) => properties(value, mask),
-            None => Some(value.clone()),
-        },
-        // A missing key has no value to recurse into. The key is dropped.
-        None => None,
-    }
-}
-
-/// Handle an array-typed key.
-///
-/// A non-array value falls back to object filtering. An empty array is returned
-/// as-is. Otherwise each element is masked and kept when not dropped. When every
-/// element drops, the whole key drops by returning `None`.
-fn array(obj: &Value, key: &str, mask: &Option<CompiledMask>) -> Option<Value> {
-    let arr = match get(obj, key) {
-        Some(Value::Array(items)) => items,
-        Some(value) => return properties(value, mask),
-        // A missing key is dropped, the same as a missing object key.
-        None => return None,
-    };
-
-    if arr.is_empty() {
-        return Some(Value::Array(arr.clone()));
+/// An empty array is returned as-is. Otherwise each element is masked and kept
+/// when not dropped. When every element drops, the whole array drops by
+/// returning `None`.
+fn mask_array(items: &[Value], mask: Option<&CompiledMask>) -> Option<Value> {
+    if items.is_empty() {
+        return Some(Value::Array(items.to_vec()));
     }
 
     let mut ret = Vec::new();
-    for item in arr {
+    for item in items {
         if let Some(masked) = properties(item, mask) {
             ret.push(masked);
         }
