@@ -13,8 +13,7 @@ categories = ["parsing", "data-structures"]
 # preserve_order keeps object keys in insertion order, which the filter relies on
 # to emit keys in mask order and to keep wildcard output in data order.
 serde_json = { version = "1.0", features = ["preserve_order"] }
-serde = { version = "1.0", features = ["derive"] }
-indexmap = { version = "2", features = ["serde"] }
+indexmap = "2"
 
 [[bin]]
 name = "json-fieldmask"
