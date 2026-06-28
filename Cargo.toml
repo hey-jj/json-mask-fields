@@ -6,5 +6,16 @@ description = "select/redact subsets of JSON objects via a Google fields-style q
 license = "MIT"
 repository = "https://github.com/hey-jj/json-fieldmask"
 readme = "README.md"
+keywords = ["json", "mask", "filter", "fields", "partial-response"]
+categories = ["parsing", "data-structures"]
 
 [dependencies]
+# preserve_order keeps object keys in insertion order, which the filter relies on
+# to emit keys in mask order and to keep wildcard output in data order.
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde = { version = "1.0", features = ["derive"] }
+indexmap = { version = "2", features = ["serde"] }
+
+[[bin]]
+name = "json-fieldmask"
+path = "src/bin/json-fieldmask.rs"
