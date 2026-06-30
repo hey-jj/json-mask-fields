@@ -48,6 +48,13 @@ pub struct Node {
 const ESCAPE_CHAR: char = '\\';
 const WILDCARD_CHAR: char = '*';
 
+/// Maximum nesting depth the parser descends into.
+///
+/// Without a cap a deeply nested query overflows the stack and aborts the
+/// process. At this depth the parser stops descending and ignores the deeper
+/// nesting. The value matches the recursion limit serde_json uses when parsing.
+const MAX_DEPTH: usize = 128;
+
 /// A scanned token: either a name or a structural terminal.
 ///
 /// A name run holds the accumulated key text. An escaped wildcard is stored as
@@ -69,7 +76,8 @@ fn is_terminal(ch: char) -> bool {
 ///
 /// An empty string returns `None`, which the filter treats as a passthrough.
 /// Malformed input does not error. The parser is lenient and returns whatever
-/// the recursive walk yields.
+/// the recursive walk yields. Nesting deeper than [`MAX_DEPTH`] is ignored so a
+/// crafted query cannot overflow the stack.
 ///
 /// ```
 /// use json_mask_fields::compile;
@@ -90,7 +98,7 @@ fn parse(tokens: Vec<Token>) -> CompiledMask {
     let mut queue: VecDeque<Token> = tokens.into_iter().collect();
     let mut root_is_array = false;
     let mut root_has_child = false;
-    build_tree(&mut queue, &mut root_is_array, &mut root_has_child)
+    build_tree(&mut queue, &mut root_is_array, &mut root_has_child, 0)
 }
 
 /// Split the query into tokens.
@@ -156,6 +164,7 @@ fn build_tree(
     tokens: &mut VecDeque<Token>,
     parent_is_array: &mut bool,
     parent_has_child: &mut bool,
+    depth: usize,
 ) -> CompiledMask {
     let mut props: CompiledMask = IndexMap::new();
 
@@ -164,7 +173,11 @@ fn build_tree(
             Token::Name(value) => {
                 let mut child_is_array = false;
                 let mut child_has_child = false;
-                let properties = build_tree(tokens, &mut child_is_array, &mut child_has_child);
+                let properties = if depth >= MAX_DEPTH {
+                    IndexMap::new()
+                } else {
+                    build_tree(tokens, &mut child_is_array, &mut child_has_child, depth + 1)
+                };
                 let properties = if properties.is_empty() {
                     None
                 } else {
