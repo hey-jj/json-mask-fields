@@ -4,7 +4,7 @@
 //! null coercion split between `mask` and `filter`, serialized key order, and
 //! the embedded escaped star.
 
-use json_fieldmask::mask;
+use json_mask_fields::mask;
 use serde_json::{json, Value};
 
 #[test]

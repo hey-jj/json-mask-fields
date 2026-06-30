@@ -3,7 +3,7 @@
 //! Each expected value was checked against a reference run. They pin behavior
 //! the engine defines but the core table does not exercise directly.
 
-use json_fieldmask::mask;
+use json_mask_fields::mask;
 use serde_json::{json, Value};
 
 struct Case {

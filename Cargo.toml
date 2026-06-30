@@ -1,10 +1,10 @@
 [package]
-name = "json-fieldmask"
+name = "json-mask-fields"
 version = "0.1.0"
 edition = "2021"
 description = "select/redact subsets of JSON objects via a Google fields-style query language"
 license = "MIT"
-repository = "https://github.com/hey-jj/json-fieldmask"
+repository = "https://github.com/hey-jj/json-mask-fields"
 readme = "README.md"
 keywords = ["json", "mask", "filter", "fields", "partial-response"]
 categories = ["parsing", "data-structures"]
@@ -16,5 +16,5 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 indexmap = "2"
 
 [[bin]]
-name = "json-fieldmask"
-path = "src/bin/json-fieldmask.rs"
+name = "json-mask-fields"
+path = "src/bin/json-mask-fields.rs"

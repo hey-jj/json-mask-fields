@@ -3,7 +3,7 @@
 //! Each case is a mask string, an input value, and the expected output. The
 //! table mirrors the canonical conformance suite for the fields language.
 
-use json_fieldmask::mask;
+use json_mask_fields::mask;
 use serde_json::{json, Value};
 
 struct Case {

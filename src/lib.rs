@@ -20,7 +20,7 @@
 //! # Example
 //!
 //! ```
-//! use json_fieldmask::mask;
+//! use json_mask_fields::mask;
 //! use serde_json::json;
 //!
 //! let input = json!({
@@ -61,7 +61,7 @@ use serde_json::Value;
 /// empty string. An empty object or array is truthy and is returned as-is.
 ///
 /// ```
-/// use json_fieldmask::mask;
+/// use json_mask_fields::mask;
 /// use serde_json::{json, Value};
 ///
 /// assert_eq!(mask(&json!({"a": 1, "b": 2}), "a"), json!({"a": 1}));

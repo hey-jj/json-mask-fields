@@ -72,7 +72,7 @@ fn is_terminal(ch: char) -> bool {
 /// the recursive walk yields.
 ///
 /// ```
-/// use json_fieldmask::compile;
+/// use json_mask_fields::compile;
 /// let tree = compile("a,b/c").unwrap();
 /// assert!(tree.contains_key("a"));
 /// assert!(tree.contains_key("b"));

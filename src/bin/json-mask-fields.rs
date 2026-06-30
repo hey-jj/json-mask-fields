@@ -1,6 +1,6 @@
 //! Command line front end for the fields query language.
 //!
-//! Usage: `json-fieldmask <fields> [input.json]`
+//! Usage: `json-mask-fields <fields> [input.json]`
 //!
 //! Reads JSON from the file given as the second argument, or from stdin when no
 //! file is given. Masks it with the fields query and prints compact JSON. Any
@@ -11,10 +11,10 @@ use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
 
-use json_fieldmask::mask;
+use json_mask_fields::mask;
 
 const MISSING_INPUT: &str =
-    "Either pipe input into json-fieldmask or specify a file as second argument";
+    "Either pipe input into json-mask-fields or specify a file as second argument";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -77,8 +77,8 @@ fn read_input(input_path: Option<&str>) -> Result<String, String> {
 /// Print an error and the usage banner.
 fn usage(message: &str) {
     eprintln!("{message}");
-    println!("Usage: json-fieldmask <fields> [input.json]");
+    println!("Usage: json-mask-fields <fields> [input.json]");
     println!("Examples:");
-    println!("  json-fieldmask \"url,object(content,attachments/url)\" input.json");
-    println!("  cat input.json | json-fieldmask \"url,object(content,attachments/url)\"");
+    println!("  json-mask-fields \"url,object(content,attachments/url)\" input.json");
+    println!("  cat input.json | json-mask-fields \"url,object(content,attachments/url)\"");
 }

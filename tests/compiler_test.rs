@@ -4,7 +4,7 @@
 //! Trees are assembled with the `obj`, `arr`, and `wild` helpers so the shape
 //! reads close to the query it stands for.
 
-use json_fieldmask::{compile, CompiledMask, Node};
+use json_mask_fields::{compile, CompiledMask, Node};
 
 /// Build a `CompiledMask` from key and node pairs in order.
 fn mask<I>(entries: I) -> CompiledMask

@@ -25,7 +25,7 @@ use crate::compiler::{CompiledMask, Node};
 /// while `filter(&json!(null), compile("a").as_ref())` is `Some(Value::Null)`.
 ///
 /// ```
-/// use json_fieldmask::{compile, filter};
+/// use json_mask_fields::{compile, filter};
 /// use serde_json::json;
 /// let m = compile("a");
 /// assert_eq!(filter(&json!({"a": 1, "b": 2}), m.as_ref()), Some(json!({"a": 1})));

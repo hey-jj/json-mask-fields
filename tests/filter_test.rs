@@ -4,7 +4,7 @@
 //! an engine regression separate from a compiler regression and pin the
 //! drop-versus-keep distinction that `filter` reports through its `Option`.
 
-use json_fieldmask::{compile, filter, CompiledMask, Node};
+use json_mask_fields::{compile, filter, CompiledMask, Node};
 use serde_json::json;
 
 fn mask<I>(entries: I) -> CompiledMask

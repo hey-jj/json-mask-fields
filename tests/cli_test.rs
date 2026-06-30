@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 fn bin() -> PathBuf {
     // Cargo points this at the binary built for the integration test.
-    PathBuf::from(env!("CARGO_BIN_EXE_json-fieldmask"))
+    PathBuf::from(env!("CARGO_BIN_EXE_json-mask-fields"))
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -73,7 +73,7 @@ fn missing_input_with_no_file_and_no_pipe() {
     assert_eq!(out.code, 1);
     assert_eq!(
         out.stderr.trim(),
-        "Either pipe input into json-fieldmask or specify a file as second argument"
+        "Either pipe input into json-mask-fields or specify a file as second argument"
     );
     assert!(out.stdout.to_lowercase().contains("usage:"));
 }

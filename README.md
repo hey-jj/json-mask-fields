@@ -1,4 +1,4 @@
-# json-fieldmask
+# json-mask-fields
 
 Select parts of a JSON value with a small fields query and drop the rest. The
 query keeps the shape of the input. It prunes the branches you did not ask for
@@ -11,13 +11,13 @@ This crate implements the Google APIs partial-response `fields` language over
 
 ```toml
 [dependencies]
-json-fieldmask = "0.1"
+json-mask-fields = "0.1"
 ```
 
 ## Use
 
 ```rust
-use json_fieldmask::mask;
+use json_mask_fields::mask;
 use serde_json::json;
 
 let input = json!({
@@ -55,7 +55,7 @@ dropped. An empty object or array is preserved.
   value was dropped and `Some(Value::Null)` means an explicit null was kept.
 
 ```rust
-use json_fieldmask::{compile, filter};
+use json_mask_fields::{compile, filter};
 use serde_json::json;
 
 let compiled = compile("a");
@@ -68,8 +68,8 @@ assert_eq!(out, Some(json!({"a": 1})));
 The crate ships a binary.
 
 ```sh
-json-fieldmask "url,object(content,attachments/url)" input.json
-cat input.json | json-fieldmask "url,object(content,attachments/url)"
+json-mask-fields "url,object(content,attachments/url)" input.json
+cat input.json | json-mask-fields "url,object(content,attachments/url)"
 ```
 
 It reads the file given as the second argument, or stdin when no file is given.
