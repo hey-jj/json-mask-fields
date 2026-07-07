@@ -57,15 +57,35 @@ const MAX_DEPTH: usize = 128;
 
 /// A scanned token: either a name or a structural terminal.
 ///
-/// A name run holds the accumulated key text. An escaped wildcard is stored as
-/// the two-char marker `\*` so the parser can tell it apart from a bare `*`.
+/// A name run holds the key text and whether the whole token is a bare wildcard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Token {
-    Name(String),
+    Name { value: String, is_wildcard: bool },
     Comma,
     Slash,
     Open,
     Close,
+}
+
+struct BuildResult {
+    props: CompiledMask,
+    dropped_at_cap: bool,
+}
+
+impl BuildResult {
+    fn new(props: CompiledMask) -> Self {
+        Self {
+            props,
+            dropped_at_cap: false,
+        }
+    }
+
+    fn from_parts(props: CompiledMask, dropped_at_cap: bool) -> Self {
+        Self {
+            dropped_at_cap: dropped_at_cap && props.is_empty(),
+            props,
+        }
+    }
 }
 
 fn is_terminal(ch: char) -> bool {
@@ -98,39 +118,35 @@ fn parse(tokens: Vec<Token>) -> CompiledMask {
     let mut queue: VecDeque<Token> = tokens.into_iter().collect();
     let mut root_is_array = false;
     let mut root_has_child = false;
-    build_tree(&mut queue, &mut root_is_array, &mut root_has_child, 0)
+    build_tree(&mut queue, &mut root_is_array, &mut root_has_child, 0).props
 }
 
 /// Split the query into tokens.
 ///
 /// Backslash escapes the next character. A trailing backslash becomes a literal
-/// backslash. An escaped wildcard keeps the two-char `\*` marker. Any other
-/// escaped character drops the backslash. The four terminals `, / ( )` flush the
-/// current name and emit a terminal token.
+/// backslash. Any escaped character drops the backslash. The four terminals
+/// `, / ( )` flush the current name and emit a terminal token.
 fn scan(text: &str) -> Vec<Token> {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
     let mut tokens = Vec::new();
     let mut name = String::new();
+    let mut name_is_wildcard = false;
     let mut i = 0;
 
     while i < len {
         let ch = chars[i];
         if ch == ESCAPE_CHAR {
+            name_is_wildcard = false;
             i += 1;
             if i >= len {
                 name.push(ESCAPE_CHAR);
                 break;
             }
             let next = chars[i];
-            if next == WILDCARD_CHAR {
-                name.push(ESCAPE_CHAR);
-                name.push(WILDCARD_CHAR);
-            } else {
-                name.push(next);
-            }
+            name.push(next);
         } else if is_terminal(ch) {
-            push_name(&mut tokens, &mut name);
+            push_name(&mut tokens, &mut name, &mut name_is_wildcard);
             tokens.push(match ch {
                 ',' => Token::Comma,
                 '/' => Token::Slash,
@@ -138,20 +154,26 @@ fn scan(text: &str) -> Vec<Token> {
                 _ => Token::Close,
             });
         } else {
+            name_is_wildcard = ch == WILDCARD_CHAR && name.is_empty();
             name.push(ch);
         }
         i += 1;
     }
-    push_name(&mut tokens, &mut name);
+    push_name(&mut tokens, &mut name, &mut name_is_wildcard);
 
     tokens
 }
 
-fn push_name(tokens: &mut Vec<Token>, name: &mut String) {
+fn push_name(tokens: &mut Vec<Token>, name: &mut String, name_is_wildcard: &mut bool) {
     if name.is_empty() {
+        *name_is_wildcard = false;
         return;
     }
-    tokens.push(Token::Name(std::mem::take(name)));
+    tokens.push(Token::Name {
+        value: std::mem::take(name),
+        is_wildcard: *name_is_wildcard,
+    });
+    *name_is_wildcard = false;
 }
 
 /// Fold tokens into a mask tree.
@@ -165,56 +187,87 @@ fn build_tree(
     parent_is_array: &mut bool,
     parent_has_child: &mut bool,
     depth: usize,
-) -> CompiledMask {
+) -> BuildResult {
     let mut props: CompiledMask = IndexMap::new();
+    let mut dropped_at_cap = false;
 
     while let Some(token) = tokens.pop_front() {
         match token {
-            Token::Name(value) => {
+            Token::Name { value, is_wildcard } => {
+                if depth >= MAX_DEPTH {
+                    let boundary = consume_selector_tail(tokens);
+                    dropped_at_cap = true;
+                    if *parent_has_child || matches!(boundary, Some(Token::Close)) {
+                        return BuildResult {
+                            props,
+                            dropped_at_cap: true,
+                        };
+                    }
+                    continue;
+                }
+
                 let mut child_is_array = false;
                 let mut child_has_child = false;
-                let properties = if depth >= MAX_DEPTH {
-                    IndexMap::new()
-                } else {
-                    build_tree(tokens, &mut child_is_array, &mut child_has_child, depth + 1)
-                };
-                let properties = if properties.is_empty() {
+                let child =
+                    build_tree(tokens, &mut child_is_array, &mut child_has_child, depth + 1);
+                if child.dropped_at_cap {
+                    if *parent_has_child {
+                        return BuildResult {
+                            props,
+                            dropped_at_cap: true,
+                        };
+                    }
+                    dropped_at_cap = true;
+                    continue;
+                }
+
+                let properties = if child.props.is_empty() {
                     None
                 } else {
-                    Some(properties)
+                    Some(child.props)
                 };
-                add_token(value, child_is_array, properties, &mut props);
+                add_token(value, is_wildcard, child_is_array, properties, &mut props);
                 if *parent_has_child {
-                    return props;
+                    return BuildResult::new(props);
                 }
             }
-            Token::Comma => return props,
+            Token::Comma => return BuildResult::from_parts(props, dropped_at_cap),
             Token::Open => *parent_is_array = true,
-            Token::Close => return props,
+            Token::Close => return BuildResult::from_parts(props, dropped_at_cap),
             Token::Slash => *parent_has_child = true,
         }
     }
 
-    props
+    BuildResult::from_parts(props, dropped_at_cap)
+}
+
+fn consume_selector_tail(tokens: &mut VecDeque<Token>) -> Option<Token> {
+    let mut group_depth = 0;
+
+    while let Some(token) = tokens.pop_front() {
+        match token {
+            Token::Open => group_depth += 1,
+            Token::Close if group_depth == 0 => return Some(Token::Close),
+            Token::Close => group_depth -= 1,
+            Token::Comma if group_depth == 0 => return Some(Token::Comma),
+            _ => {}
+        }
+    }
+
+    None
 }
 
 /// Record a name into the props map.
 ///
-/// A bare `*` becomes a wildcard node. The escaped marker `\*` rewrites to a
-/// literal `*` key with no wildcard flag. Empty properties are dropped.
+/// A bare `*` becomes a wildcard node. Escaped stars are literal key text.
+/// Empty properties are dropped.
 fn add_token(
-    mut value: String,
+    value: String,
+    is_wildcard: bool,
     is_array: bool,
     properties: Option<CompiledMask>,
     props: &mut CompiledMask,
 ) {
-    let mut is_wildcard = false;
-    if value == "*" {
-        is_wildcard = true;
-    } else if value == "\\*" {
-        value = "*".to_string();
-    }
-
     props.insert(
         value,
         Node {

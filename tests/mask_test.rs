@@ -1,11 +1,11 @@
 //! Targeted `mask` tests that the main table leaves implicit.
 //!
 //! These pin scalar top-level inputs, the all-elements-drop array path, the
-//! null coercion split between `mask` and `filter`, serialized key order, and
-//! the embedded escaped star.
+//! null coercion split between `mask` and `filter`, serialized key order, the
+//! embedded escaped star, and the depth cap.
 
 use json_mask_fields::mask;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 #[test]
 fn scalar_top_level_masks_to_null() {
@@ -67,12 +67,49 @@ fn serialized_output_follows_mask_order_then_data_order() {
 }
 
 #[test]
-fn embedded_escaped_star_keeps_its_backslash() {
+fn embedded_escaped_star_matches_literal_star() {
     // Lone \* normalizes to a literal *. An escaped star inside a longer name
-    // keeps its backslash, so the key is the four-character string a\*b.
+    // also becomes a literal star in that key.
     assert_eq!(
         mask(&json!({"a\\*b": 1, "a*b": 2}), "a\\*b"),
-        json!({"a\\*b": 1})
+        json!({"a*b": 2})
     );
-    assert_eq!(mask(&json!({"a*b": 2}), "a\\*b"), json!({}));
+    assert_eq!(mask(&json!({"a\\*b": 1}), "a\\*b"), json!({}));
+}
+
+#[test]
+fn depth_cap_drops_over_depth_child_path() {
+    let input = nested_a(129, json!({"wanted": 1, "extra": 2}));
+    let query = std::iter::repeat_n("a", 129)
+        .chain(std::iter::once("wanted"))
+        .collect::<Vec<_>>()
+        .join("/");
+
+    assert_eq!(mask(&input, &query), json!({}));
+}
+
+#[test]
+fn depth_cap_drops_over_depth_group_member() {
+    let input = json!({
+        "x": [nested_a(129, json!({"wanted": 1, "extra": 2}))],
+        "y": 3,
+        "z": 4,
+    });
+    let deep_member = std::iter::repeat_n("a", 129)
+        .chain(std::iter::once("wanted"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let query = format!("x({deep_member}),y");
+
+    assert_eq!(mask(&input, &query), json!({"y": 3}));
+}
+
+fn nested_a(depth: usize, leaf: Value) -> Value {
+    let mut input = leaf;
+    for _ in 0..depth {
+        let mut map = Map::new();
+        map.insert("a".to_string(), input);
+        input = Value::Object(map);
+    }
+    input
 }

@@ -160,8 +160,8 @@ fn compile_table() {
         ("\\n", mask([("n", obj(None))])),
         // a real newline byte is an ordinary name character
         ("multi\nline", mask([("multi\nline", obj(None))])),
-        // an escaped star inside a longer name keeps its backslash
-        ("a\\*b", mask([("a\\*b", obj(None))])),
+        // an escaped star inside a longer name becomes a literal star
+        ("a\\*b", mask([("a*b", obj(None))])),
     ];
 
     for (query, expected) in cases {
