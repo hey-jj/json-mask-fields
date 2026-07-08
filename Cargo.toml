@@ -1,6 +1,6 @@
 [package]
 name = "json-mask-fields"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "select/redact subsets of JSON objects via a Google fields-style query language"
 license = "MIT"
